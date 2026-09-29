@@ -1,16 +1,7 @@
-// Expose the syllabus dataset to the cloud-backed portal without changing the
-// existing data.js source format.
+// Expose the existing syllabus database to the cloud-backed portal.
+// data.js defines the DATA object used by the original portal.
 try {
-  window.DATA = {
-    dsssbTech,
-    dsssbPaper1,
-    bpscSubject,
-    bpscPrelims,
-    bpscMainPaper1,
-    bpscMainGS,
-    maps,
-    traps
-  };
+  window.DATA = DATA;
 } catch (e) {
-  console.error('Syllabus data bridge failed', e);
+  console.error('Syllabus data bridge failed: DATA was not found.', e);
 }
