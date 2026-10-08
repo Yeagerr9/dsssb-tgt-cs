@@ -1,0 +1,9 @@
+import {fmtMin,examLabel} from './utils.js';
+export default {id:'time',title:'Time & Sessions',icon:'◷',exams:['dsssb','bpsc'],route:'#/time',
+render(el,ctx){
+ const sessions=(ctx.state.sessions||[]).filter(s=>s.exam===ctx.exam),today=new Date().toISOString().slice(0,10),todayMin=sessions.filter(s=>new Date(s.at).toISOString().slice(0,10)===today).reduce((n,s)=>n+Number(s.seconds||0)/60,0),total=sessions.reduce((n,s)=>n+Number(s.seconds||0)/60,0);
+ el.innerHTML='<div class="grid"><div class="card"><span class="small">Today</span><div class="kpi">'+fmtMin(todayMin)+'</div></div><div class="card"><span class="small">Total '+examLabel(ctx.exam)+'</span><div class="kpi">'+fmtMin(total)+'</div></div><div class="card"><span class="small">Daily target</span><div class="kpi">'+(ctx.state.settings?.daily||120)+'m</div></div><div class="card"><span class="small">Sessions</span><div class="kpi">'+sessions.length+'</div></div></div><div class="card"><h3>Focus timer</h3><div id="tm" class="kpi">00:00:00</div><button id="startTimer" class="btn primary">Start</button> <button id="resetTimer" class="btn">Reset</button><p class="muted">A completed session is saved to the active exam workspace.</p></div>';
+ let sec=0,timer=null;const tick=()=>{sec++;const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60),s=sec%60;el.querySelector('#tm').textContent=[h,m,s].map(x=>String(x).padStart(2,'0')).join(':')};
+ el.querySelector('#startTimer').onclick=()=>{if(timer){clearInterval(timer);timer=null;ctx.state.sessions.push({id:crypto.randomUUID(),exam:ctx.exam,at:Date.now(),seconds:sec});ctx.save();el.querySelector('#startTimer').textContent='Start';ctx.toast('Focus session saved')}else{timer=setInterval(tick,1000);el.querySelector('#startTimer').textContent='Pause'}};
+ el.querySelector('#resetTimer').onclick=()=>{sec=0;el.querySelector('#tm').textContent='00:00:00'};return el.innerHTML;
+}};
