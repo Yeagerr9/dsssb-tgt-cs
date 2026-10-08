@@ -4,18 +4,20 @@ import {updateMastery} from '../engine/mastery.js';
 import {scheduleTopic} from '../engine/spaced.js';
 export default {id:'practice',title:'Practice Bank',icon:'✓',exams:['dsssb','bpsc'],route:'#/practice',
 render(el,ctx){
- const qs=(ctx.state.questions||[]).filter(q=>q.examTags?.includes(ctx.exam));
+ const all=(ctx.state.questions||[]).filter(q=>q.examTags?.includes(ctx.exam));
+ const qs=filtered(all,el);
  const rows=topicRows(ctx.catalog,ctx.exam),ts=ctx.state.topicState||{};
  const weights=Object.fromEntries(rows.map(x=>[x.id,(x.priority==='A+'?4:x.priority==='A'?3:x.priority==='B'?2:1)]));
  const next=selectNext(qs,ts,weights);
  if(!qs.length){el.innerHTML='<div class="card"><h3>Practice Bank</h3><div class="empty">No question bank is loaded for this exam yet.<br><br>Add verified questions from the Practice Bank. The portal will then use adaptive selection, mastery and spaced revision.</div><button id="addQ" class="btn primary">＋ Add verified question</button></div>';bindAdd(el,ctx);return el.innerHTML}
  if(!next){el.innerHTML='<div class="empty">No eligible question found.</div>';return el.innerHTML}
  const idx=qs.indexOf(next);
- el.innerHTML='<div class="grid-2"><div class="card"><div class="section-head"><span class="tag">'+next.difficulty+'/5 difficulty</span><span class="tag">'+(next.source||'user')+'</span></div><div class="question">'+esc(next.text)+'</div><div id="options">'+(next.options||[]).map((o,i)=>'<button class="option" data-opt="'+i+'">'+String.fromCharCode(65+i)+'. '+esc(o)+'</button>').join('')+'</div><div class="toolbar"><button id="flag" class="btn">⚑ Flag for revision</button><span class="muted">Adaptive mode • weak/due topics weighted higher</span></div></div><div class="card"><h3>Why this question?</h3><p class="muted">The selector targets weak or overdue topics, matches difficulty to current mastery and avoids recently seen topics.</p><div class="stat-list"><div class="stat-row"><span>Topic</span><b>'+esc(next.topicId)+'</b></div><div class="stat-row"><span>Attempts</span><b>'+(ts[next.topicId]?.attempts||0)+'</b></div><div class="stat-row"><span>Mastery</span><b>'+Math.round((ts[next.topicId]?.mastery??.3)*100)+'%</b></div></div></div></div>';
+ el.innerHTML='<div class="card"><div class="toolbar"><select id="qDifficulty"><option value="">All difficulties</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select><input id="qTopic" placeholder="Filter topic…"></div></div><div class="grid-2"><div class="card"><div class="section-head"><span class="tag">'+next.difficulty+'/5 difficulty</span><span class="tag">'+(next.source||'user')+'</span></div><div class="question">'+esc(next.text)+'</div><div id="options">'+(next.options||[]).map((o,i)=>'<button class="option" data-opt="'+i+'">'+String.fromCharCode(65+i)+'. '+esc(o)+'</button>').join('')+'</div><div class="toolbar"><button id="flag" class="btn">⚑ Flag for revision</button><span class="muted">Adaptive mode • weak/due topics weighted higher</span></div></div><div class="card"><h3>Why this question?</h3><p class="muted">The selector targets weak or overdue topics, matches difficulty to current mastery and avoids recently seen topics.</p><div class="stat-list"><div class="stat-row"><span>Topic</span><b>'+esc(next.topicId)+'</b></div><div class="stat-row"><span>Attempts</span><b>'+(ts[next.topicId]?.attempts||0)+'</b></div><div class="stat-row"><span>Mastery</span><b>'+Math.round((ts[next.topicId]?.mastery??.3)*100)+'%</b></div></div></div></div>';
  el.querySelectorAll('[data-opt]').forEach(b=>b.onclick=()=>answer(el,ctx,next,qs,Number(b.dataset.opt)));
  el.querySelector('#flag').onclick=()=>{next.flagged=true;ctx.toast('Question flagged for revision');ctx.render()};
  return el.innerHTML;
-}};
+}}
+function filtered(all,el){const d=el.querySelector('#qDifficulty')?.value||'',t=(el.querySelector('#qTopic')?.value||'').toLowerCase();return all.filter(q=>(!d||String(q.difficulty)===d)&&(!t||String(q.topicId||'').toLowerCase().includes(t)))}
 function answer(el,ctx,q,qs,opt){
  const correct=opt===Number(q.answer),t=ctx.state.topicState[q.topicId]||{mastery:.3,attempts:0};
  const seconds=Number(prompt('Seconds spent on this question','30')||30),expected=Number(q.expectedSeconds||45);
