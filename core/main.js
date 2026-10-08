@@ -5,6 +5,7 @@ import {registry,byId} from './registry.js';
 import '../data/catalog.js';
 import {topicRows} from '../modules/utils.js';
 import {queueSave} from './store.js';
+import '../engine/tests.js';
 import {startRouter,navigate} from './router.js';
 const $=id=>document.getElementById(id);
 const exams={
