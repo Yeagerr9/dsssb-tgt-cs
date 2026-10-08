@@ -51,7 +51,7 @@ async function renderPage(){
  const m=byId[route]||byId.dashboard;
  if(!examScope(m)){navigate('dashboard');return}
  $('pageTitle').textContent=m.title;$('workspaceEyebrow').textContent=exams[activeExam].label;
- $('content').innerHTML=await m.render($('content'),{exam:activeExam,state:state(),catalog:window.CS_CATALOG,navigate,toast,render:renderPage,save:queueSave});
+ const html=await m.render($('content'),{exam:activeExam,state:state(),catalog:window.CS_CATALOG,navigate,toast,render:renderPage,save:queueSave});if(typeof html==='string'&&$('content').innerHTML!==html)$('content').innerHTML=html;
  renderNav();renderBanner();
 }
 function renderAll(){renderNav();renderBanner();renderPage()}
