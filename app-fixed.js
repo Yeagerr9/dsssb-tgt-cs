@@ -18,9 +18,14 @@ let timer = null;
 let sec = 0;
 let saveTimer = null;
 let DATA_READY = window.DATA || {};
+const EXAM_UI = {
+  DSSSB:{label:'DSSSB TGT',full:'DSSSB TGT Computer Science',target:'dsssb',rows:['DSSSB CS','DSSSB Paper 1'],primary:'DSSSB CS'},
+  BPSC:{label:'BPSC TRE 4.0',full:'BPSC TRE 4.0 Computer Science',target:'bpsc',rows:['BPSC CS','BPSC Paper 1','BPSC Prelims','BPSC GS'],primary:'BPSC CS'}
+};
+let ACTIVE_EXAM = 'DSSSB';
 let U = {
   status:{}, targets:{}, pyq:[], sessions:[], history:[], revision:{},
-  mockHistory:[], srSettings:{baseDays:1,maxDays:60},
+  mockHistory:[], srSettings:{baseDays:1,maxDays:60}, activeExam:'DSSSB',
   daily:120, today:0, total:0, createdAt:Date.now(), lastDay:new Date().toISOString().slice(0,10)
 };
 
@@ -50,7 +55,8 @@ const normalize = x => Object.assign({
   sessions:(x && x.sessions) || [],
   history:(x && x.history) || [], revision:(x && x.revision) || {},
   mockHistory:(x && x.mockHistory) || [],
-  srSettings:Object.assign({baseDays:1,maxDays:60}, (x && x.srSettings) || {})
+  srSettings:Object.assign({baseDays:1,maxDays:60}, (x && x.srSettings) || {}),
+  activeExam:(x && (x.activeExam==='BPSC'||x.activeExam==='DSSSB')) ? x.activeExam : 'DSSSB'
 });
 
 const statusWeight = s => s === STATUS[4] ? 1 : s === STATUS[3] ? .78 : s === STATUS[2] ? .55 : s === STATUS[1] ? .25 : 0;
@@ -71,6 +77,49 @@ function rowsFor() {
 
 function st(id) {
   return U.status[id] || STATUS[0];
+}
+
+function examConfig(){ return EXAM_UI[ACTIVE_EXAM]; }
+function examRows(){ const names=examConfig().rows; return rowsFor().filter(x=>names.includes(x.exam)); }
+function examPYQ(q){ return !!q && examConfig().rows.includes(q.e); }
+function setActiveExam(key){
+  if(!EXAM_UI[key]) return;
+  ACTIVE_EXAM=key;
+  U.activeExam=key;
+  PAGE='home';
+  queueSave();
+  render();
+}
+function renderExamNav(){
+  const nav=$('sideNav');
+  if(!nav) return;
+  const c=examConfig();
+  const paperLabel=ACTIVE_EXAM==='DSSSB'?'Paper 1':'Paper 1';
+  const extra=ACTIVE_EXAM==='BPSC'
+    ? '<button data-page="bg">🌐 GS / Prelims</button>'
+    : '';
+  nav.innerHTML=
+    '<div class="group">Overview</div><nav>'+
+      '<button data-page="home">🏠 Dashboard</button>'+
+      '<button data-page="analytics">📊 Analytics</button>'+
+      '<button data-page="planner">🎯 Smart Planner</button>'+
+    '</nav>'+
+    '<div class="group">Syllabus</div><nav>'+
+      '<button data-page="'+(ACTIVE_EXAM==='DSSSB'?'dsssb':'bpsc')+'">📘 Computer Science</button>'+
+      '<button data-page="'+(ACTIVE_EXAM==='DSSSB'?'d1':'b1')+'">📝 '+paperLabel+'</button>'+
+      extra+
+    '</nav>'+
+    '<div class="group">Practice</div><nav>'+
+      '<button data-page="pyq">📚 PYQ Bank</button>'+
+      '<button data-page="quiz">🧠 Spaced Practice</button>'+
+      '<button data-page="mock">📝 Exam Simulator</button>'+
+    '</nav>'+
+    '<div class="group">Productivity</div><nav>'+
+      '<button data-page="time">⏱ Time & Sessions</button>'+
+      '<button data-page="settings">⚙ Settings</button>'+
+    '</nav>';
+  document.querySelectorAll('[data-exam]').forEach(b=>b.classList.toggle('active',b.dataset.exam===ACTIVE_EXAM));
+  document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===PAGE));
 }
 
 async function saveCloud() {
@@ -109,6 +158,7 @@ async function loadCloud(user) {
       U = normalize({displayName:user.displayName || (($('displayName') || {}).value || '')});
       await saveCloud();
     }
+    ACTIVE_EXAM = U.activeExam || 'DSSSB';
     if (U.lastDay !== today()) {
       U.today = 0;
       U.lastDay = today();
@@ -257,7 +307,7 @@ function stats(exam) {
 }
 
 function pyqStats(exam) {
-  const q = (U.pyq || []).filter(x => !exam || x.e === exam);
+  const q = (U.pyq || []).filter(x => exam ? x.e === exam : examPYQ(x));
   const attempts = q.reduce((n,x) => n + (+x.attempts || 0), 0);
   const correct = q.reduce((n,x) => n + (+x.correct || 0), 0);
   return {
@@ -268,7 +318,7 @@ function pyqStats(exam) {
 }
 
 function overall() {
-  const a = rowsFor();
+  const a = examRows();
   const den = a.reduce((n,x) => n + priWeight(x.priority), 0);
   const score = den ? Math.round(a.reduce((n,x) => n + priWeight(x.priority) * statusWeight(st(x.id)), 0) / den * 100) : 0;
   const done = a.filter(x => st(x.id) === STATUS[3] || st(x.id) === STATUS[4]).length;
@@ -287,7 +337,7 @@ function fmtSec(s) {
 
 function topicMetrics(x) {
   const status=st(x.id), mastery=statusWeight(status);
-  const qs=(U.pyq||[]).filter(q=>String(q.t||'').trim().toLowerCase()===String(x.topic||'').trim().toLowerCase());
+  const qs=(U.pyq||[]).filter(q=>examPYQ(q) && String(q.t||'').trim().toLowerCase()===String(x.topic||'').trim().toLowerCase());
   const attempts=qs.reduce((n,q)=>n+Math.max(0,+q.attempts||0),0);
   const correct=qs.reduce((n,q)=>n+Math.max(0,+q.correct||0),0);
   const accuracy=attempts?correct/attempts:null;
@@ -303,7 +353,8 @@ function topicMetrics(x) {
   const weakness=1-mastery, confidenceGap=1-accuracyScore;
   const staleness=mastery>=1?0:(0.45*revisionDebt+0.55*(1-retention));
   const readiness=100*(0.42*mastery+0.18*accuracyScore+0.12*evidence+0.18*retention+0.10*frequencyScore);
-  const targetDays=['dsssb','bpsc'].filter(k=>U.targets[k]).map(k=>Math.max(1,(new Date(U.targets[k])-Date.now())/86400000));
+  const targetKey=examConfig().target;
+  const targetDays=U.targets[targetKey]?[Math.max(1,(new Date(U.targets[targetKey])-Date.now())/86400000)]:[];
   const urgencyBoost=targetDays.length?Math.min(1,14/Math.min.apply(null,targetDays)):0;
   const nextScore=100*(0.30*priorityScore+0.18*frequencyScore+0.20*weakness+0.14*confidenceGap+0.10*staleness+0.08*urgencyBoost);
   return {status,mastery,attempts,correct,accuracy,bayesAccuracy,evidence,daysSince,retention,revisionDebt,readiness,nextScore};
@@ -314,7 +365,7 @@ function srState(q) {
 }
 function dueQuestions() {
   const now=Date.now();
-  return (U.pyq||[]).filter(q=>q.q && q.options && q.answer!==undefined && Number(srState(q).due||0)<=now);
+  return (U.pyq||[]).filter(q=>examPYQ(q) && q.q && q.options && q.answer!==undefined && Number(srState(q).due||0)<=now);
 }
 function updateSR(q, correct, confidence=3) {
   const s=srState(q);
@@ -349,7 +400,7 @@ function recordAttempt(index, correct, confidence, errorType) {
   queueSave();
 }
 function questionBankStats() {
-  const qs=(U.pyq||[]).filter(q=>q.q);
+  const qs=(U.pyq||[]).filter(q=>examPYQ(q) && q.q);
   const due=dueQuestions().length;
   const attempts=qs.reduce((n,q)=>n+(+q.attempts||0),0);
   const correct=qs.reduce((n,q)=>n+(+q.correct||0),0);
@@ -401,7 +452,7 @@ function mockPage() {
     '<div class="grid"><div><span class="small">Range</span><div class="kpi">'+projection().low+'–'+projection().high+'</div></div><div><span class="small">Center</span><div class="kpi">'+projection().mean+'</div></div><div><span class="small">Readiness</span><div class="kpi">'+readiness().score+'%</div></div><div><span class="small">PYQ accuracy</span><div class="kpi">'+questionBankStats().accuracy+'%</div></div></div></div>';
 }
 function readiness() {
-  const rows=rowsFor();
+  const rows=examRows();
   if(!rows.length)return {score:0,accuracy:0,coverage:0,need:null,debt:0};
   const m=rows.map(topicMetrics);
   const attempts=m.reduce((s,x)=>s+x.attempts,0), correct=m.reduce((s,x)=>s+x.correct,0);
@@ -409,13 +460,14 @@ function readiness() {
   const coverage=Math.round(m.filter(x=>x.attempts>0).length/m.length*100);
   const score=Math.round(m.reduce((s,x)=>s+x.readiness,0)/m.length);
   const debt=Math.round(m.reduce((s,x)=>s+(1-x.mastery)*Math.min(1,(x.daysSince===999?30:x.daysSince)/30),0)/m.length*100)/100;
-  const days=['dsssb','bpsc'].filter(k=>U.targets[k]).map(k=>Math.max(.25,(new Date(U.targets[k])-Date.now())/86400000));
+  const targetKey=examConfig().target;
+  const days=U.targets[targetKey]?[Math.max(.25,(new Date(U.targets[targetKey])-Date.now())/86400000)]:[];
   const remaining=rows.reduce((s,x)=>s+(x.expected||1)*(1-statusWeight(st(x.id))),0);
   const need=days.length?Math.ceil(remaining/Math.min.apply(null,days)):null;
   return {score,accuracy,coverage,need,debt};
 }
 function remainingFor(exam){
-  const rows=rowsFor().filter(x=>x.exam===exam);
+  const rows=exam ? rowsFor().filter(x=>x.exam===exam) : examRows();
   const remaining=rows.filter(x=>st(x.id)!==STATUS[4]).length;
   const completed=rows.length-remaining;
   const sections=[...new Set(rows.map(x=>x.section))];
@@ -436,12 +488,12 @@ function bannerCountdown(t){
 function updateExamBanner(){
   const el=$('examBanner');
   if(!el) return;
-  const ds=remainingFor('DSSSB CS'), bs=remainingFor('BPSC CS');
-  const d=U.targets.dsssb, b=U.targets.bpsc;
-  const items=[];
-  if(d) items.push('<div><b>🎯 DSSSB TGT CS</b><br><span class="bannerClock">'+bannerCountdown(d)+'</span><br><span class="small">'+ds.remainingSections+' subject areas remaining • '+ds.remaining+' topics remaining • '+ds.completed+'/'+ds.total+' topics completed</span></div>');
-  if(b) items.push('<div><b>🎯 BPSC TRE 4.0 CS</b><br><span class="bannerClock">'+bannerCountdown(b)+'</span><br><span class="small">'+bs.remainingSections+' subject areas remaining • '+bs.remaining+' topics remaining • '+bs.completed+'/'+bs.total+' topics completed</span></div>');
-  el.innerHTML=items.length?items.join('<div class="bannerDivider"></div>'):'<div><b>📅 Exam countdown</b><br><span class="small">Set DSSSB/BPSC exam dates in Settings to activate the live countdown and remaining-subject banner.</span></div>';
+  const c=examConfig(), r=remainingFor(), target=U.targets[c.target];
+  el.innerHTML='<div class="bannerExamName"><b>🎯 '+esc(c.full)+'</b><span class="small">Active study workspace</span></div>'+
+    '<div><span class="small">EXAM COUNTDOWN</span><br><span class="bannerClock">'+bannerCountdown(target)+'</span></div>'+
+    '<div><span class="small">SUBJECT AREAS REMAINING</span><br><b>'+r.remainingSections+' / '+r.sections+'</b></div>'+
+    '<div><span class="small">TOPICS REMAINING</span><br><b>'+r.remaining+' / '+r.total+'</b></div>'+
+    '<div><span class="small">MASTERED</span><br><b>'+r.completed+' / '+r.total+'</b></div>';
   el.classList.remove('hide');
 }
 function countdown(t) {
@@ -463,37 +515,26 @@ function priorityMap(key) {
 }
 
 function home() {
-  const r = readiness(), o = overall();
-  let exams = '';
-  EXAMS.forEach(pair => {
-    const s = stats(pair[0]);
-    exams += '<div class="card"><b>' + esc(pair[0]) + '</b><div class="kpi">' + s.score +
-      '%</div><div class="bar"><i style="width:' + s.score + '%"></i></div><span class="small">' +
-      s.master + ' mastered • ' + s.done + ' completed</span></div>';
-  });
-  return '<div class="alert ' + (r.score >= 75 ? 'success' : r.score < 45 ? 'dangerbox' : 'warning') +
-    '"><b>Weighted readiness: ' + r.score + '/100.</b> This is a study-readiness index, not a predicted exam score.</div>' +
-    '<div class="grid">' +
-    '<div class="card"><span class="small">Overall readiness</span><div class="kpi">' + r.score + '%</div><div class="bar"><i style="width:' + r.score + '%"></i></div></div>' +
-    '<div class="card"><span class="small">Completed / mastered</span><div class="kpi">' + o.done + '/' + o.total + '</div></div>' +
-    '<div class="card"><span class="small">PYQ accuracy</span><div class="kpi">' + r.accuracy + '%</div><span class="small">' + o.pyq.attempts + ' attempts</span></div>' +
-    '<div class="card"><span class="small">PYQ topic coverage</span><div class="kpi">' + r.coverage + '%</div></div></div>' +
-    '<div class="grid">' + exams + '</div>' +
-    '<div class="two"><div class="card"><h2>DSSSB priority map</h2>' + priorityMap('dsssb') +
-    '</div><div class="card"><h2>BPSC CS priority map</h2>' + priorityMap('bpscSubject') + '</div></div>' +
-    '<div class="two"><div class="card"><h2>Exam countdown</h2>' +
-    (U.targets.dsssb ? 'DSSSB: ' + countdown(U.targets.dsssb) : 'DSSSB: <span class="mut">set date</span>') + '<br>' +
-    (U.targets.bpsc ? 'BPSC: ' + countdown(U.targets.bpsc) : 'BPSC: <span class="mut">set date</span>') +
-    '</div><div class="card"><h2>Study pace</h2><div class="statrow"><span>Today</span><b>' + fmtMin(U.today) +
-    '</b></div><div class="statrow"><span>Total focused</span><b>' + fmtMin(U.total) +
-    '</b></div><div class="statrow"><span>Daily target</span><b>' + U.daily + ' min</b></div>' +
-    (r.need ? '<div class="statrow"><span>Required topic completions/day</span><b>' + r.need + '</b></div>' : '') +
-    '</div></div>';
+  const c=examConfig(), r=readiness(), o=overall(), rows=examRows();
+  const subjectCards=c.rows.map(name=>{
+    const stx=stats(name);
+    return '<div class="card miniExam"><span class="small">'+esc(name)+'</span><div class="kpi">'+stx.score+'%</div><div class="bar"><i style="width:'+stx.score+'%"></i></div><span class="small">'+stx.master+' mastered • '+stx.done+'/'+stx.total+' completed</span></div>';
+  }).join('');
+  const mapKey=ACTIVE_EXAM==='DSSSB'?'dsssb':'bpscSubject';
+  return '<div class="heroCard"><div><span class="eyebrow">'+esc(c.label)+'</span><h1>'+esc(c.full)+'</h1><p class="mut">Your complete exam workspace — syllabus, Paper 1/GS, PYQs, adaptive planning and mock practice.</p></div><div class="heroScore"><span>Readiness</span><b>'+r.score+'%</b></div></div>'+
+    '<div class="grid">'+
+    '<div class="card"><span class="small">Readiness</span><div class="kpi">'+r.score+'%</div><div class="bar"><i style="width:'+r.score+'%"></i></div></div>'+
+    '<div class="card"><span class="small">Completed / total</span><div class="kpi">'+o.done+'/'+o.total+'</div></div>'+
+    '<div class="card"><span class="small">PYQ accuracy</span><div class="kpi">'+r.accuracy+'%</div><span class="small">'+o.pyq.attempts+' attempts</span></div>'+
+    '<div class="card"><span class="small">Revision debt</span><div class="kpi">'+r.debt+'</div></div></div>'+
+    '<div class="section"><div class="sh"><div><b>Exam components</b><div class="small">Only '+esc(c.label)+' content is shown in this workspace.</div></div></div><div class="componentGrid">'+subjectCards+'</div></div>'+
+    '<div class="two"><div class="card"><h2>Priority map</h2>'+priorityMap(mapKey)+'</div>'+
+    '<div class="card"><h2>Study pace</h2><div class="statrow"><span>Today</span><b>'+fmtMin(U.today)+'</b></div><div class="statrow"><span>Total focused</span><b>'+fmtMin(U.total)+'</b></div><div class="statrow"><span>Daily target</span><b>'+U.daily+' min</b></div>'+(r.need?'<div class="statrow"><span>Required completions/day</span><b>'+r.need+'</b></div>':'')+'</div></div>'+
+    '<div class="card"><h2>Next best action</h2><p class="mut">Use Smart Planner for the ranked queue. The highest-value unfinished topics are selected from '+rows.length+' tracked micro-topics for this exam.</p><button class="primary" data-page="planner">Open Smart Planner →</button></div>';
 }
-
 function analytics() {
   const r=readiness();
-  const all=rowsFor().map(x=>({x,m:topicMetrics(x)}));
+  const all=examRows().map(x=>({x,m:topicMetrics(x)}));
   const weak=all.filter(z=>z.m.status!==STATUS[4]).sort((a,b)=>b.m.nextScore-a.m.nextScore).slice(0,15);
   const stale=all.filter(z=>z.m.status!==STATUS[0]).sort((a,b)=>b.m.daysSince-a.m.daysSince).slice(0,10);
   const weakHtml=weak.map(z=>'<div class="statrow"><span><b>'+esc(z.x.topic)+'</b><br><span class="small">'+esc(z.x.exam)+' • '+esc(z.x.priority)+' • '+z.m.status+'</span></span><b>'+Math.round(z.m.nextScore)+'</b></div>').join('');
@@ -511,7 +552,7 @@ function analytics() {
     '<li>Revision decay is a planning heuristic, not a scientific memory model.</li></ul></div>';
 }
 function planner() {
-  const rows=rowsFor().map(x=>({x,m:topicMetrics(x)})).filter(z=>z.m.status!==STATUS[4]).sort((a,b)=>b.m.nextScore-a.m.nextScore);
+  const rows=examRows().map(x=>({x,m:topicMetrics(x)})).filter(z=>z.m.status!==STATUS[4]).sort((a,b)=>b.m.nextScore-a.m.nextScore);
   const daily=Math.max(30,Number(U.daily)||120);
   let budget=daily, plan=[];
   for(const z of rows){
@@ -531,6 +572,9 @@ function planner() {
     '<div class="card"><span class="small">Queue size</span><div class="kpi">'+rows.length+'</div></div></div>'+
     '<div class="card"><h2>Daily plan buckets</h2><div class="grid"><div><b>LEARN</b><br><span class="small">New / low mastery</span></div><div><b>PRACTICE</b><br><span class="small">Low PYQ accuracy</span></div><div><b>REVISE</b><br><span class="small">High revision debt</span></div><div><b>MOCK / ERROR LOG</b><br><span class="small">Use Exam Simulator + wrong-answer history</span></div></div></div>'+
     '<div class="card"><h2>Today\'s study queue</h2><table><tr><th>Topic</th><th>Exam</th><th>Priority</th><th>Status</th><th>Score</th><th>PYQ Acc.</th><th>Action</th><th>Time</th></tr>'+html+'</table></div>';
+}
+function syllabusMulti(items) {
+  return items.map(pair=>syllabus(pair[0],pair[1])).join('');
 }
 function syllabus(key, exam) {
   const data = DATA_READY[key] || [];
@@ -564,7 +608,7 @@ function common() {
 }
 
 function pyq() {
-  const a = U.pyq || [], q = overall().pyq;
+  const a = (U.pyq || []).filter(examPYQ), q = pyqStats();
   let rows = a.map(x => '<tr><td>' + esc(x.e) + '</td><td>' + esc(x.y) + '</td><td>' +
     esc(x.t) + '</td><td>' + esc(x.p) + '</td><td>' + esc(x.d) + '</td><td>' + x.attempts +
     '</td><td>' + x.correct + '</td></tr>').join('');
@@ -579,13 +623,13 @@ function pyq() {
 }
 
 function settings() {
-  return '<div class="two"><div class="card"><h2>Exam dates</h2>' +
-    '<label>DSSSB<input id="dd" type="datetime-local" value="' + String(U.targets.dsssb || '').slice(0,16) + '"></label>' +
-    '<label>BPSC<input id="bd" type="datetime-local" value="' + String(U.targets.bpsc || '').slice(0,16) + '"></label>' +
-    '<button id="dates" class="primary">Save dates</button></div><div class="card"><h2>Study target</h2>' +
-    '<input id="daily" type="number" min="1" value="' + U.daily + '"><button id="dailySave">Save daily minutes</button><hr>' +
-    '<b>Account</b><p class="small">' + esc(ME.email) + (ME.emailVerified ? ' • Email verified' : ' • Email not verified') +
-    '</p><button id="verify2">Send verification email</button></div></div>';
+  const c=examConfig();
+  return '<div class="two"><div class="card"><h2>'+esc(c.label)+' exam settings</h2>'+
+    '<label>Exam date & time<input id="activeDate" type="datetime-local" value="'+String(U.targets[c.target]||'').slice(0,16)+'"></label>'+
+    '<button id="dates" class="primary">Save '+esc(c.label)+' date</button>'+
+    '<div class="alert" style="margin-top:12px"><b>Active workspace:</b> '+esc(c.full)+'. Switching the DSSSB/BPSC tab changes the entire study workspace without deleting your data.</div></div>'+
+    '<div class="card"><h2>Study target</h2><input id="daily" type="number" min="1" value="'+U.daily+'"><button id="dailySave">Save daily minutes</button><hr>'+
+    '<b>Account</b><p class="small">'+esc(ME.email)+(ME.emailVerified?' • Email verified':' • Email not verified')+'</p><button id="verify2">Send verification email</button></div></div>';
 }
 
 function timePage() {
@@ -597,36 +641,33 @@ function timePage() {
 }
 
 function render() {
-  const titles = {
-    home:'Dashboard', analytics:'Analytics', planner:'Smart Planner',
-    dsssb:'DSSSB TGT Computer Science', d1:'DSSSB Paper 1',
-    bpsc:'BPSC TRE 4.0 Computer Science', b1:'BPSC Paper 1',
-    bg:'BPSC GS / Prelims', common:'Common Core', pyq:'PYQ Bank', quiz:'Spaced Practice', mock:'Exam Simulator',
-    time:'Time & Sessions', quiz:'Spaced-Repetition Practice', mock:'Exam Simulator', settings:'Settings'
-  };
-  $('title').textContent = titles[PAGE] || 'Dashboard';
+  const titles={home:'Dashboard',analytics:'Analytics',planner:'Smart Planner',dsssb:'Computer Science',d1:'Paper 1',bpsc:'Computer Science',b1:'Paper 1',bg:'GS / Prelims',common:'Common Core',pyq:'PYQ Bank',quiz:'Spaced Practice',mock:'Exam Simulator',time:'Time & Sessions',settings:'Settings'};
+  const c=examConfig();
+  $('title').textContent=(titles[PAGE]||'Dashboard');
+  $('examLabel').textContent=c.label+' • '+c.full;
+  renderExamNav();
   updateExamBanner();
   let v;
-  if (PAGE === 'home') v=home();
-  else if (PAGE === 'analytics') v=analytics();
-  else if (PAGE === 'planner') v=planner();
-  else if (PAGE === 'dsssb') v=syllabus('dsssbTech','DSSSB CS');
-  else if (PAGE === 'd1') v=syllabus('dsssbPaper1','DSSSB Paper 1');
-  else if (PAGE === 'bpsc') v=syllabus('bpscSubject','BPSC CS');
-  else if (PAGE === 'b1') v=syllabus('bpscMainPaper1','BPSC Paper 1');
-  else if (PAGE === 'bg') v=syllabus('bpscPrelims','BPSC Prelims');
-  else if (PAGE === 'common') v=common();
-  else if (PAGE === 'pyq') v=pyq();
-  else if (PAGE === 'quiz') v=quizPage();
-  else if (PAGE === 'mock') v=mockPage();
-  else if (PAGE === 'time') v=timePage();
+  if(PAGE==='home')v=home();
+  else if(PAGE==='analytics')v=analytics();
+  else if(PAGE==='planner')v=planner();
+  else if(PAGE==='dsssb')v=syllabus('dsssbTech','DSSSB CS');
+  else if(PAGE==='d1')v=syllabus('dsssbPaper1','DSSSB Paper 1');
+  else if(PAGE==='bpsc')v=syllabus('bpscSubject','BPSC CS');
+  else if(PAGE==='b1')v=syllabus('bpscMainPaper1','BPSC Paper 1');
+  else if(PAGE==='bg')v=syllabusMulti([['bpscPrelims','BPSC Prelims'],['bpscMainGS','BPSC GS']]);
+  else if(PAGE==='common')v=common();
+  else if(PAGE==='pyq')v=pyq();
+  else if(PAGE==='quiz')v=quizPage();
+  else if(PAGE==='mock')v=mockPage();
+  else if(PAGE==='time')v=timePage();
   else v=settings();
-  $('content').innerHTML = v;
+  $('content').innerHTML=v;
   bind();
   updateExamBanner();
 }
-
 function bind() {
+  document.querySelectorAll('[data-exam]').forEach(b => b.onclick=()=>setActiveExam(b.dataset.exam));
   document.querySelectorAll('[data-page]').forEach(b => b.onclick = () => { PAGE=b.dataset.page; render(); });
   document.querySelectorAll('.statusSelect').forEach(s => s.onchange = () => setSt(s.dataset.id,s.value));
 
@@ -641,7 +682,7 @@ function bind() {
   }
 
   if ($('addQuestion')) $('addQuestion').onclick = () => {
-    const e=prompt('Exam'), y=prompt('Year / shift'), t=prompt('Topic / subtopic'),
+    const e=examConfig().primary, y=prompt('Year / shift'), t=prompt('Topic / subtopic'),
       q=prompt('Question text'), opts=prompt('Options separated by || (e.g. A||B||C||D)'),
       ans=prompt('Correct option number (1-4)','1'), d=prompt('Difficulty','Medium');
     if(e && y && t && q && opts) {
@@ -653,7 +694,7 @@ function bind() {
   };
 
   if ($('addPyq')) $('addPyq').onclick = () => {
-    const e=prompt('Exam'), y=prompt('Year / shift'), t=prompt('Topic / subtopic'),
+    const e=examConfig().primary, y=prompt('Year / shift'), t=prompt('Topic / subtopic'),
       p=prompt('Pattern'), d=prompt('Difficulty'), a=prompt('Attempts','1'), c=prompt('Correct','0');
     if (e && y && t) {
       U.pyq.push({e,y,t,p,d,attempts:+a||0,correct:+c||0,at:Date.now()});
@@ -676,7 +717,7 @@ function bind() {
   });
 
   if ($('startMock')) $('startMock').onclick=()=>{
-    const pool=(U.pyq||[]).map((q,i)=>({q,i})).filter(z=>z.q.q && z.q.options && z.q.answer!==undefined);
+    const pool=(U.pyq||[]).map((q,i)=>({q,i})).filter(z=>examPYQ(z.q) && z.q.q && z.q.options && z.q.answer!==undefined);
     const n=Math.min(pool.length,Math.max(1,+$('mockN').value||20));
     for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
     U.mock={active:true,indices:pool.slice(0,n).map(z=>z.i),answers:{},marks:+$('mockMarks').value||1,negative:+$('mockNeg').value||0.25,time:+$('mockTime').value||30,start:Date.now()};
@@ -695,7 +736,7 @@ function bind() {
   };
 
   if ($('dates')) $('dates').onclick = () => {
-    U.targets={dsssb:$('dd').value,bpsc:$('bd').value};
+    U.targets=Object.assign({},U.targets,{[examConfig().target]:$('activeDate').value});
     queueSave(); render();
   };
 
