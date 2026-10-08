@@ -291,6 +291,7 @@ function topicMetrics(x) {
   const attempts=qs.reduce((n,q)=>n+Math.max(0,+q.attempts||0),0);
   const correct=qs.reduce((n,q)=>n+Math.max(0,+q.correct||0),0);
   const accuracy=attempts?correct/attempts:null;
+  const bayesAccuracy=(correct+1)/(attempts+2);
   const evidence=Math.min(1,qs.length/5);
   const last=Number((U.revision||{})[x.id]||0);
   const daysSince=last?Math.max(0,(Date.now()-last)/86400000):999;
@@ -298,14 +299,14 @@ function topicMetrics(x) {
   const revisionDebt=mastery>=1?0:Math.min(1,daysSince/30);
   const priorityScore=priWeight(x.priority)/4;
   const frequencyScore=x.expected?Math.min(1,x.expected/14):priorityScore;
-  const accuracyScore=accuracy===null?0.55:accuracy;
+  const accuracyScore=bayesAccuracy;
   const weakness=1-mastery, confidenceGap=1-accuracyScore;
   const staleness=mastery>=1?0:(0.45*revisionDebt+0.55*(1-retention));
   const readiness=100*(0.42*mastery+0.18*accuracyScore+0.12*evidence+0.18*retention+0.10*frequencyScore);
   const targetDays=['dsssb','bpsc'].filter(k=>U.targets[k]).map(k=>Math.max(1,(new Date(U.targets[k])-Date.now())/86400000));
   const urgencyBoost=targetDays.length?Math.min(1,14/Math.min.apply(null,targetDays)):0;
   const nextScore=100*(0.30*priorityScore+0.18*frequencyScore+0.20*weakness+0.14*confidenceGap+0.10*staleness+0.08*urgencyBoost);
-  return {status,mastery,attempts,correct,accuracy,evidence,daysSince,retention,revisionDebt,readiness,nextScore};
+  return {status,mastery,attempts,correct,accuracy,bayesAccuracy,evidence,daysSince,retention,revisionDebt,readiness,nextScore};
 }
 
 function srState(q) {
@@ -476,7 +477,7 @@ function analytics() {
     '<div class="card"><h2>Algorithm weights</h2><ul>'+
     '<li>Topic readiness: 42% mastery + 18% PYQ accuracy + 12% PYQ evidence + 18% retention + 10% historical frequency.</li>'+
     '<li>Next-topic score: 30% priority + 18% frequency + 20% weakness + 14% confidence gap + 10% staleness + 8% exam urgency.</li>'+
-    '<li>Unknown PYQ accuracy is neutral until attempts exist.</li>'+
+    '<li>Question accuracy uses a Bayesian-smoothed estimate: (correct + 1) / (attempts + 2), reducing overreaction to tiny samples.</li>'+
     '<li>Revision decay is a planning heuristic, not a scientific memory model.</li></ul></div>';
 }
 function planner() {
@@ -491,13 +492,14 @@ function planner() {
     budget-=alloc;
   }
   const html=plan.map(z=>{
-    const action=z.m.mastery<.25?'LEARN':z.m.accuracy!==null&&z.m.accuracy<.6?'PRACTICE':z.m.revisionDebt>.45?'REVISE':'MIXED';
+    const action=z.m.mastery<.25?'LEARN':z.m.accuracy!==null&&z.m.accuracy<.6?'PRACTICE':z.m.revisionDebt>.45?'REVISE':z.m.attempts===0?'LEARN':'MIXED';
     return '<tr><td><b>'+esc(z.x.topic)+'</b><br><span class="small">'+esc(z.x.section)+'</span></td><td>'+esc(z.x.exam)+'</td><td>'+esc(z.x.priority)+'</td><td>'+z.m.status+'</td><td>'+Math.round(z.m.nextScore)+'</td><td>'+(z.m.accuracy===null?'—':Math.round(z.m.accuracy*100)+'%')+'</td><td><b>'+action+'</b></td><td>'+z.mins+' min</td></tr>';
   }).join('');
   return '<div class="alert"><b>Adaptive queue:</b> priority + frequency + mastery + PYQ accuracy + revision decay + exam urgency.</div>'+
     '<div class="grid"><div class="card"><span class="small">Daily budget</span><div class="kpi">'+daily+'m</div></div>'+
     '<div class="card"><span class="small">Revision debt</span><div class="kpi">'+readiness().debt+'</div></div>'+
     '<div class="card"><span class="small">Queue size</span><div class="kpi">'+rows.length+'</div></div></div>'+
+    '<div class="card"><h2>Daily plan buckets</h2><div class="grid"><div><b>LEARN</b><br><span class="small">New / low mastery</span></div><div><b>PRACTICE</b><br><span class="small">Low PYQ accuracy</span></div><div><b>REVISE</b><br><span class="small">High revision debt</span></div><div><b>MOCK / ERROR LOG</b><br><span class="small">Use Exam Simulator + wrong-answer history</span></div></div></div>'+
     '<div class="card"><h2>Today\'s study queue</h2><table><tr><th>Topic</th><th>Exam</th><th>Priority</th><th>Status</th><th>Score</th><th>PYQ Acc.</th><th>Action</th><th>Time</th></tr>'+html+'</table></div>';
 }
 function syllabus(key, exam) {
