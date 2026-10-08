@@ -14,7 +14,7 @@ const exams={
 let activeExam='dsssb', route='dashboard', user=null;
 const navGroups=[
  ['WORKSPACE',['dashboard','syllabus','practice','mocks']],
- ['GENERAL',['paper1','analytics','notes']]
+ ['GENERAL',['paper1','analytics','notes','time','settings']]
 ];
 function state(){return getState()}
 function examScope(m){return !m.exams||m.exams.includes(activeExam)}
@@ -62,7 +62,7 @@ $('signOutBtn').onclick=async()=>{await logout();location.reload()};
 async function enter(u){
  user=u;setUser(u.uid);loadLocal();
  try{await load()}catch(e){toast('Cloud read failed; local cache shown.')} 
- const legacy=state().legacy;if(legacy)legacyMigrate(legacy);
+ const legacy=state().legacy;if(legacy){legacyMigrate(legacy);await new Promise(r=>setTimeout(r,50))} if(!state().questions?.length){try{const rq=await fetch('./data/questions.json');if(rq.ok)state().questions=await rq.json()}catch(_){}}
  activeExam=state().settings?.activeExam||localStorage.getItem('cstm-active-exam')||'dsssb';
  $('profileName').textContent=u.displayName||state().profile?.displayName||u.email;
  $('profileEmail').textContent=u.email||'';
