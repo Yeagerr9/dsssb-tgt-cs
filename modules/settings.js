@@ -1,0 +1,8 @@
+import {esc} from './utils.js';
+export default {id:'settings',title:'Settings',icon:'⚙',exams:['dsssb','bpsc'],route:'#/settings',
+render(el,ctx){
+ const s=ctx.state.settings||{},target=s.targets?.[ctx.exam]||'';
+ el.innerHTML='<div class="grid-2"><div class="card"><h3>'+ (ctx.exam==='dsssb'?'DSSSB TGT':'BPSC TRE 4.0')+' settings</h3><label class="field">Exam date & time<input id="examDate" type="datetime-local" value="'+String(target).slice(0,16)+'"></label><label class="field">Daily study target (minutes)<input id="daily" type="number" min="15" value="'+(s.daily||120)+'"></label><button id="saveSettings" class="btn primary">Save workspace settings</button><div class="notice">The countdown and planner use this exam date. No official marking scheme is assumed by the rebuilt portal; configure mock marks/negative marking in Mock Tests.</div></div><div class="card"><h3>Account & security</h3><p><b>'+esc(ctx.state.profile?.displayName||'Learner')+'</b></p><p class="muted">Your profile data is stored under your authenticated Firebase UID. Firestore rules restrict access to your own user path.</p><h4>Data</h4><button id="clearLocal" class="btn">Clear local cache</button><p class="small muted">This does not delete your cloud account or Firestore data.</p></div></div>';
+ el.querySelector('#saveSettings').onclick=()=>{ctx.state.settings={...s,targets:{...(s.targets||{}),[ctx.exam]:el.querySelector('#examDate').value},daily:Math.max(15,Number(el.querySelector('#daily').value||120))};ctx.save();ctx.toast('Settings saved');ctx.render()};
+ el.querySelector('#clearLocal').onclick=()=>{localStorage.removeItem('cstm-cache-v1');ctx.toast('Local cache cleared')};return el.innerHTML;
+}};
