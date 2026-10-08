@@ -20,6 +20,7 @@ let saveTimer = null;
 let DATA_READY = window.DATA || {};
 let U = {
   status:{}, targets:{}, pyq:[], sessions:[], history:[], revision:{},
+  mockHistory:[], srSettings:{baseDays:1,maxDays:60},
   daily:120, today:0, total:0, createdAt:Date.now(), lastDay:new Date().toISOString().slice(0,10)
 };
 
@@ -47,7 +48,9 @@ const normalize = x => Object.assign({
   targets:(x && x.targets) || {},
   pyq:(x && x.pyq) || [],
   sessions:(x && x.sessions) || [],
-  history:(x && x.history) || [], revision:(x && x.revision) || {}
+  history:(x && x.history) || [], revision:(x && x.revision) || {},
+  mockHistory:(x && x.mockHistory) || [],
+  srSettings:Object.assign({baseDays:1,maxDays:60}, (x && x.srSettings) || {})
 });
 
 const statusWeight = s => s === STATUS[4] ? 1 : s === STATUS[3] ? .78 : s === STATUS[2] ? .55 : s === STATUS[1] ? .25 : 0;
@@ -304,6 +307,98 @@ function topicMetrics(x) {
   const nextScore=100*(0.30*priorityScore+0.18*frequencyScore+0.20*weakness+0.14*confidenceGap+0.10*staleness+0.08*urgencyBoost);
   return {status,mastery,attempts,correct,accuracy,evidence,daysSince,retention,revisionDebt,readiness,nextScore};
 }
+
+function srState(q) {
+  return Object.assign({interval:0,ease:2.5,reps:0,due:0,last:0}, q.sr || {});
+}
+function dueQuestions() {
+  const now=Date.now();
+  return (U.pyq||[]).filter(q=>q.q && q.options && q.answer!==undefined && Number(srState(q).due||0)<=now);
+}
+function updateSR(q, correct, confidence=3) {
+  const s=srState(q);
+  const quality=correct ? Math.max(3,Math.min(5,3+Number(confidence||3)-3)) : Math.min(2,Number(confidence||2));
+  if(quality<3){
+    s.reps=0;
+    s.interval=1;
+    s.ease=Math.max(1.3,s.ease-0.2);
+  }else{
+    s.reps+=1;
+    if(s.reps===1) s.interval=1;
+    else if(s.reps===2) s.interval=3;
+    else s.interval=Math.min(Number(U.srSettings.maxDays||60),Math.max(1,Math.round(s.interval*s.ease)));
+    s.ease=Math.max(1.3,s.ease+(quality===5?0.1:quality===3?-0.05:0));
+  }
+  s.last=Date.now();
+  s.due=Date.now()+s.interval*86400000;
+  q.sr=s;
+}
+function recordAttempt(index, correct, confidence, errorType) {
+  const q=U.pyq[index];
+  if(!q)return;
+  q.attempts=Math.max(0,+q.attempts||0)+1;
+  if(correct) q.correct=Math.max(0,+q.correct||0)+1;
+  q.lastAttempt=Date.now();
+  q.confidence=Math.max(1,Math.min(5,+confidence||3));
+  q.errorType=correct?'none':(errorType||'concept');
+  q.attemptLog=q.attemptLog||[];
+  q.attemptLog.push({at:Date.now(),correct:!!correct,confidence:q.confidence,errorType:q.errorType});
+  if(q.attemptLog.length>30) q.attemptLog=q.attemptLog.slice(-30);
+  updateSR(q,correct,q.confidence);
+  queueSave();
+}
+function questionBankStats() {
+  const qs=(U.pyq||[]).filter(q=>q.q);
+  const due=dueQuestions().length;
+  const attempts=qs.reduce((n,q)=>n+(+q.attempts||0),0);
+  const correct=qs.reduce((n,q)=>n+(+q.correct||0),0);
+  const conf=qs.length?Math.round(qs.reduce((n,q)=>n+(+q.confidence||0),0)/qs.length*20):0;
+  return {questions:qs.length,due,attempts,correct,accuracy:attempts?Math.round(correct/attempts*100):0,confidence:conf};
+}
+function projection(exam) {
+  const r=readiness(), q=questionBankStats();
+  const observed=q.attempts?q.accuracy/100:r.score/100;
+  const readinessRate=Math.max(0,Math.min(1,(r.score/100)*0.65+observed*0.35));
+  const max=200;
+  const mean=Math.round(max*readinessRate);
+  const spread=Math.max(12,Math.round(max*(0.12+((100-r.score)/100)*0.10)));
+  return {mean,low:Math.max(0,mean-spread),high:Math.min(max,mean+spread),max};
+}
+function quizPage() {
+  const due=dueQuestions(), qs=(U.pyq||[]).filter(q=>q.q);
+  const q=due[0], idx=q?U.pyq.indexOf(q):-1;
+  const s=q?srState(q):null;
+  if(!qs.length) return '<div class="alert warning"><b>No question-ready PYQs yet.</b> Add PYQs with question text, four options and the correct option in the PYQ Bank.</div>';
+  if(!q) return '<div class="card"><h2>Spaced-Repetition Practice</h2><div class="kpi">All caught up ✓</div><p>There are no due questions right now. Next reviews are scheduled automatically from your answers.</p><p class="small">Question bank: '+qs.length+' • Next-review scheduling uses adaptive intervals and confidence.</p></div>';
+  return '<div class="card"><div class="statrow"><span>Due question</span><b>'+(idx+1)+'</b></div>'+
+    '<div class="alert"><b>'+esc(q.e||'')+'</b> • '+esc(q.t||'')+' • '+esc(q.d||'')+'</div>'+
+    '<h2>'+esc(q.q)+'</h2>'+
+    '<div>'+q.options.map((o,i)=>'<button class="optionBtn" data-qidx="'+idx+'" data-opt="'+i+'" style="display:block;width:100%;text-align:left;margin:7px 0">'+String.fromCharCode(65+i)+'. '+esc(o)+'</button>').join('')+'</div>'+
+    '<div class="toolbar"><label style="flex:1">Confidence before answer<select id="qConfidence"><option value="1">1 — Guess</option><option value="2">2 — Low</option><option value="3" selected>3 — Moderate</option><option value="4">4 — High</option><option value="5">5 — Certain</option></select></label>'+
+    '<label style="flex:1">If wrong, error type<select id="qError"><option value="concept">Concept gap</option><option value="memory">Recall / memory</option><option value="calculation">Calculation</option><option value="careless">Careless mistake</option><option value="reading">Question interpretation</option></select></label></div>'+
+    '<p class="small">Repetitions: '+s.reps+' • Current interval: '+s.interval+' day(s) • Attempts: '+(+q.attempts||0)+'</p></div>';
+}
+function mockPage() {
+  const qs=(U.pyq||[]).filter(q=>q.q && q.options && q.answer!==undefined);
+  if(!qs.length) return '<div class="alert warning"><b>Mock simulator needs question-ready PYQs.</b> Add questions with options and correct answers in the PYQ Bank.</div>';
+  if(U.mock && U.mock.active){
+    const ids=U.mock.indices||[], answered=U.mock.answers||{};
+    const rows=ids.map((idx,n)=>{
+      const q=U.pyq[idx];
+      return '<div class="card"><b>Q'+(n+1)+'. '+esc(q.q)+'</b>'+q.options.map((o,i)=>'<label style="display:block;margin:6px 0"><input type="radio" name="mq'+n+'" value="'+i+'" '+(String(answered[n])===String(i)?'checked':'')+' data-mockq="'+n+'"> '+String.fromCharCode(65+i)+'. '+esc(o)+'</label>').join('')+'</div>';
+    }).join('');
+    return '<div class="alert"><b>Mock in progress.</b> '+ids.length+' questions • DSSSB-style default: +1 / −0.25. Change scoring in Settings if your notification differs.</div>'+
+      rows+'<button id="submitMock" class="primary">Submit Mock</button> <button id="cancelMock">Cancel</button>';
+  }
+  return '<div class="card"><h2>Exam Simulator</h2><p>Build a timed MCQ mock from your question bank. The simulator records the result separately and does not alter topic status.</p>'+
+    '<div class="grid"><label>Questions<input id="mockN" type="number" min="1" max="'+qs.length+'" value="'+Math.min(20,qs.length)+'"></label>'+
+    '<label>Marks / correct<input id="mockMarks" type="number" step="0.25" value="1"></label>'+
+    '<label>Negative / wrong<input id="mockNeg" type="number" step="0.05" value="0.25"></label>'+
+    '<label>Time (minutes)<input id="mockTime" type="number" min="1" value="30"></label></div>'+
+    '<button id="startMock" class="primary">Start Mock</button></div>'+
+    '<div class="card"><h2>Projection</h2><p class="small">Practice-equivalent projection on a 200-mark scale; it is a planning estimate, not a guaranteed exam score.</p>'+
+    '<div class="grid"><div><span class="small">Range</span><div class="kpi">'+projection().low+'–'+projection().high+'</div></div><div><span class="small">Center</span><div class="kpi">'+projection().mean+'</div></div><div><span class="small">Readiness</span><div class="kpi">'+readiness().score+'%</div></div><div><span class="small">PYQ accuracy</span><div class="kpi">'+questionBankStats().accuracy+'%</div></div></div></div>';
+}
 function readiness() {
   const rows=rowsFor();
   if(!rows.length)return {score:0,accuracy:0,coverage:0,need:null,debt:0};
@@ -395,12 +490,15 @@ function planner() {
     plan.push({...z,mins:alloc});
     budget-=alloc;
   }
-  const html=plan.map(z=>'<tr><td><b>'+esc(z.x.topic)+'</b><br><span class="small">'+esc(z.x.section)+'</span></td><td>'+esc(z.x.exam)+'</td><td>'+esc(z.x.priority)+'</td><td>'+z.m.status+'</td><td>'+Math.round(z.m.nextScore)+'</td><td>'+(z.m.accuracy===null?'—':Math.round(z.m.accuracy*100)+'%')+'</td><td>'+z.mins+' min</td></tr>').join('');
+  const html=plan.map(z=>{
+    const action=z.m.mastery<.25?'LEARN':z.m.accuracy!==null&&z.m.accuracy<.6?'PRACTICE':z.m.revisionDebt>.45?'REVISE':'MIXED';
+    return '<tr><td><b>'+esc(z.x.topic)+'</b><br><span class="small">'+esc(z.x.section)+'</span></td><td>'+esc(z.x.exam)+'</td><td>'+esc(z.x.priority)+'</td><td>'+z.m.status+'</td><td>'+Math.round(z.m.nextScore)+'</td><td>'+(z.m.accuracy===null?'—':Math.round(z.m.accuracy*100)+'%')+'</td><td><b>'+action+'</b></td><td>'+z.mins+' min</td></tr>';
+  }).join('');
   return '<div class="alert"><b>Adaptive queue:</b> priority + frequency + mastery + PYQ accuracy + revision decay + exam urgency.</div>'+
     '<div class="grid"><div class="card"><span class="small">Daily budget</span><div class="kpi">'+daily+'m</div></div>'+
     '<div class="card"><span class="small">Revision debt</span><div class="kpi">'+readiness().debt+'</div></div>'+
     '<div class="card"><span class="small">Queue size</span><div class="kpi">'+rows.length+'</div></div></div>'+
-    '<div class="card"><h2>Today\'s study queue</h2><table><tr><th>Topic</th><th>Exam</th><th>Priority</th><th>Status</th><th>Score</th><th>PYQ Acc.</th><th>Time</th></tr>'+html+'</table></div>';
+    '<div class="card"><h2>Today\'s study queue</h2><table><tr><th>Topic</th><th>Exam</th><th>Priority</th><th>Status</th><th>Score</th><th>PYQ Acc.</th><th>Action</th><th>Time</th></tr>'+html+'</table></div>';
 }
 function syllabus(key, exam) {
   const data = DATA_READY[key] || [];
@@ -439,12 +537,12 @@ function pyq() {
     esc(x.t) + '</td><td>' + esc(x.p) + '</td><td>' + esc(x.d) + '</td><td>' + x.attempts +
     '</td><td>' + x.correct + '</td></tr>').join('');
   return '<div class="card"><div class="toolbar"><div><h2>PYQ Bank</h2><span class="small">Question-level evidence drives analytics.</span></div>' +
-    '<button class="primary" id="addPyq">＋ Add PYQ</button></div><div class="grid">' +
+    '<button class="primary" id="addPyq">＋ Add PYQ</button><button id="addQuestion">＋ Add Question</button></div><div class="grid">' +
     '<div class="card"><b>' + a.length + '</b><br><span class="small">Questions</span></div>' +
     '<div class="card"><b>' + q.attempts + '</b><br><span class="small">Attempts</span></div>' +
     '<div class="card"><b>' + q.accuracy + '%</b><br><span class="small">Accuracy</span></div>' +
     '<div class="card"><b>' + q.topics + '</b><br><span class="small">Unique topics</span></div></div>' +
-    (a.length ? '<table><tr><th>Exam</th><th>Year/shift</th><th>Topic</th><th>Pattern</th><th>Difficulty</th><th>Attempts</th><th>Correct</th></tr>' + rows + '</table>' :
+    (a.length ? '<table><tr><th>Exam</th><th>Year/shift</th><th>Topic</th><th>Pattern</th><th>Difficulty</th><th>Attempts</th><th>Correct</th><th>Next review</th></tr>' + a.map(x => { const s=srState(x); return '<tr><td>'+esc(x.e)+'</td><td>'+esc(x.y)+'</td><td>'+esc(x.t)+'</td><td>'+esc(x.p)+'</td><td>'+esc(x.d)+'</td><td>'+(x.attempts||0)+'</td><td>'+(x.correct||0)+'</td><td>'+ (x.q ? (s.due ? new Date(s.due).toLocaleDateString() : 'Due') : '—') +'</td></tr>'; }).join('') + '</table>' :
     '<div class="alert">No PYQs recorded yet. Add real questions to build observed pattern analytics.</div>') + '</div>';
 }
 
@@ -471,8 +569,8 @@ function render() {
     home:'Dashboard', analytics:'Analytics', planner:'Smart Planner',
     dsssb:'DSSSB TGT Computer Science', d1:'DSSSB Paper 1',
     bpsc:'BPSC TRE 4.0 Computer Science', b1:'BPSC Paper 1',
-    bg:'BPSC GS / Prelims', common:'Common Core', pyq:'PYQ Bank',
-    time:'Time & Sessions', settings:'Settings'
+    bg:'BPSC GS / Prelims', common:'Common Core', pyq:'PYQ Bank', quiz:'Spaced Practice', mock:'Exam Simulator',
+    time:'Time & Sessions', quiz:'Spaced-Repetition Practice', mock:'Exam Simulator', settings:'Settings'
   };
   $('title').textContent = titles[PAGE] || 'Dashboard';
   let v;
@@ -486,6 +584,8 @@ function render() {
   else if (PAGE === 'bg') v=syllabus('bpscPrelims','BPSC Prelims');
   else if (PAGE === 'common') v=common();
   else if (PAGE === 'pyq') v=pyq();
+  else if (PAGE === 'quiz') v=quizPage();
+  else if (PAGE === 'mock') v=mockPage();
   else if (PAGE === 'time') v=timePage();
   else v=settings();
   $('content').innerHTML = v;
@@ -506,6 +606,18 @@ function bind() {
     se.oninput=filter; pr.onchange=filter; sf.onchange=filter;
   }
 
+  if ($('addQuestion')) $('addQuestion').onclick = () => {
+    const e=prompt('Exam'), y=prompt('Year / shift'), t=prompt('Topic / subtopic'),
+      q=prompt('Question text'), opts=prompt('Options separated by || (e.g. A||B||C||D)'),
+      ans=prompt('Correct option number (1-4)','1'), d=prompt('Difficulty','Medium');
+    if(e && y && t && q && opts) {
+      const options=opts.split('||').map(s=>s.trim()).filter(Boolean).slice(0,6);
+      const answer=Math.max(0,Math.min(options.length-1,(+ans||1)-1));
+      U.pyq.push({e,y,t,p:'MCQ',d,question:q,q,options,answer,attempts:0,correct:0,confidence:3,sr:{interval:0,ease:2.5,reps:0,due:0,last:0},at:Date.now()});
+      queueSave(); render();
+    }
+  };
+
   if ($('addPyq')) $('addPyq').onclick = () => {
     const e=prompt('Exam'), y=prompt('Year / shift'), t=prompt('Topic / subtopic'),
       p=prompt('Pattern'), d=prompt('Difficulty'), a=prompt('Attempts','1'), c=prompt('Correct','0');
@@ -513,6 +625,39 @@ function bind() {
       U.pyq.push({e,y,t,p,d,attempts:+a||0,correct:+c||0,at:Date.now()});
       queueSave(); render();
     }
+  };
+
+  document.querySelectorAll('.optionBtn').forEach(b => b.onclick=()=>{
+    const idx=+b.dataset.qidx, opt=+b.dataset.opt, q=U.pyq[idx];
+    const correct=opt===+q.answer;
+    recordAttempt(idx,correct,+($('qConfidence')||{}).value||3,+($('qError')||{}).value||'concept');
+    alert(correct?'Correct ✓':'Incorrect. Correct answer: '+String.fromCharCode(65+(+q.answer||0)));
+    render();
+  });
+
+  document.querySelectorAll('[data-mockq]').forEach(r=>r.onchange=()=>{
+    U.mock=U.mock||{active:true,indices:[],answers:{}};
+    U.mock.answers[r.dataset.mockq]=+r.value;
+    queueSave();
+  });
+
+  if ($('startMock')) $('startMock').onclick=()=>{
+    const pool=(U.pyq||[]).map((q,i)=>({q,i})).filter(z=>z.q.q && z.q.options && z.q.answer!==undefined);
+    const n=Math.min(pool.length,Math.max(1,+$('mockN').value||20));
+    for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
+    U.mock={active:true,indices:pool.slice(0,n).map(z=>z.i),answers:{},marks:+$('mockMarks').value||1,negative:+$('mockNeg').value||0.25,time:+$('mockTime').value||30,start:Date.now()};
+    render();
+  };
+  if ($('cancelMock')) $('cancelMock').onclick=()=>{U.mock=null;render();};
+  if ($('submitMock')) $('submitMock').onclick=()=>{
+    const m=U.mock, ids=m.indices||[], answers=m.answers||{};
+    let correct=0,wrong=0,unattempted=0;
+    ids.forEach((idx,n)=>{const q=U.pyq[idx], a=answers[n]; if(a===undefined){unattempted++;return;} if(+a===+q.answer){correct++;recordAttempt(idx,true,3,'none');}else{wrong++;recordAttempt(idx,false,2,'mock');}});
+    const score=correct*m.marks-wrong*m.negative;
+    U.mockHistory.push({at:Date.now(),n:ids.length,correct,wrong,unattempted,score,max:ids.length*m.marks,marks:m.marks,negative:m.negative,time:m.time});
+    U.mock=null; queueSave();
+    alert('Mock result: '+score+' / '+(ids.length*m.marks)+' | Correct '+correct+' | Wrong '+wrong+' | Unattempted '+unattempted);
+    render();
   };
 
   if ($('dates')) $('dates').onclick = () => {
