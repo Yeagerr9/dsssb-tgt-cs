@@ -14,7 +14,7 @@ const exams={
 };
 let activeExam='dsssb', route='dashboard', user=null;
 const navGroups=[
- ['WORKSPACE',['dashboard','syllabus','practice','mocks']],
+ ['WORKSPACE',['dashboard','syllabus','practice','planner','mocks']],
  ['GENERAL',['paper1','analytics','notes','time','settings']]
 ];
 function state(){return getState()}
