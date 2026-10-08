@@ -19,7 +19,7 @@ let sec = 0;
 let saveTimer = null;
 let DATA_READY = window.DATA || {};
 let U = {
-  status:{}, targets:{}, pyq:[], sessions:[], history:[],
+  status:{}, targets:{}, pyq:[], sessions:[], history:[], revision:{},
   daily:120, today:0, total:0, createdAt:Date.now(), lastDay:new Date().toISOString().slice(0,10)
 };
 
@@ -40,14 +40,14 @@ const setAuthState = (text, cls='') => {
 const today = () => new Date().toISOString().slice(0,10);
 
 const normalize = x => Object.assign({
-  status:{}, targets:{}, pyq:[], sessions:[], history:[],
+  status:{}, targets:{}, pyq:[], sessions:[], history:[], revision:{},
   daily:120, today:0, total:0, createdAt:Date.now(), lastDay:today(), displayName:''
 }, x || {}, {
   status:(x && x.status) || {},
   targets:(x && x.targets) || {},
   pyq:(x && x.pyq) || [],
   sessions:(x && x.sessions) || [],
-  history:(x && x.history) || []
+  history:(x && x.history) || [], revision:(x && x.revision) || {}
 });
 
 const statusWeight = s => s === STATUS[4] ? 1 : s === STATUS[3] ? .78 : s === STATUS[2] ? .55 : s === STATUS[1] ? .25 : 0;
@@ -59,7 +59,7 @@ function rowsFor() {
     const exam = pair[0], key = pair[1];
     (DATA_READY[key] || []).forEach(x => {
       (x[3] || []).forEach(topic => {
-        out.push({exam, section:x[0], topic, priority:x[2], id:exam + '|' + x[0] + '|' + topic});
+        out.push({exam, section:x[0], topic, priority:x[2], expected:Number(x[1]) || 0, id:exam + '|' + x[0] + '|' + topic});
       });
     });
   });
@@ -235,6 +235,7 @@ function openApp() {
 function setSt(id, value) {
   const old = st(id);
   U.status[id] = value;
+  U.revision[id] = Date.now();
   U.history.push({type:'status',id,from:old,to:value,at:Date.now()});
   queueSave();
   render();
@@ -281,17 +282,42 @@ function fmtSec(s) {
   return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60) + 'm ' + (s%60) + 's';
 }
 
-function readiness() {
-  const o = overall();
-  const days = ['dsssb','bpsc'].filter(k => U.targets[k]).map(k => Math.max(.25,(new Date(U.targets[k])-Date.now())/86400000));
-  return {
-    score:o.score,
-    accuracy:o.pyq.accuracy,
-    coverage:o.total ? Math.round(o.pyq.topics/o.total*100) : 0,
-    need:days.length ? Math.ceil(o.remaining/Math.min.apply(null,days)) : null
-  };
+function topicMetrics(x) {
+  const status=st(x.id), mastery=statusWeight(status);
+  const qs=(U.pyq||[]).filter(q=>String(q.t||'').trim().toLowerCase()===String(x.topic||'').trim().toLowerCase());
+  const attempts=qs.reduce((n,q)=>n+Math.max(0,+q.attempts||0),0);
+  const correct=qs.reduce((n,q)=>n+Math.max(0,+q.correct||0),0);
+  const accuracy=attempts?correct/attempts:null;
+  const evidence=Math.min(1,qs.length/5);
+  const last=Number((U.revision||{})[x.id]||0);
+  const daysSince=last?Math.max(0,(Date.now()-last)/86400000):999;
+  const retention=last?Math.exp(-daysSince/21):0;
+  const revisionDebt=mastery>=1?0:Math.min(1,daysSince/30);
+  const priorityScore=priWeight(x.priority)/4;
+  const frequencyScore=x.expected?Math.min(1,x.expected/14):priorityScore;
+  const accuracyScore=accuracy===null?0.55:accuracy;
+  const weakness=1-mastery, confidenceGap=1-accuracyScore;
+  const staleness=mastery>=1?0:(0.45*revisionDebt+0.55*(1-retention));
+  const readiness=100*(0.42*mastery+0.18*accuracyScore+0.12*evidence+0.18*retention+0.10*frequencyScore);
+  const targetDays=['dsssb','bpsc'].filter(k=>U.targets[k]).map(k=>Math.max(1,(new Date(U.targets[k])-Date.now())/86400000));
+  const urgencyBoost=targetDays.length?Math.min(1,14/Math.min.apply(null,targetDays)):0;
+  const nextScore=100*(0.30*priorityScore+0.18*frequencyScore+0.20*weakness+0.14*confidenceGap+0.10*staleness+0.08*urgencyBoost);
+  return {status,mastery,attempts,correct,accuracy,evidence,daysSince,retention,revisionDebt,readiness,nextScore};
 }
-
+function readiness() {
+  const rows=rowsFor();
+  if(!rows.length)return {score:0,accuracy:0,coverage:0,need:null,debt:0};
+  const m=rows.map(topicMetrics);
+  const attempts=m.reduce((s,x)=>s+x.attempts,0), correct=m.reduce((s,x)=>s+x.correct,0);
+  const accuracy=attempts?Math.round(correct/attempts*100):0;
+  const coverage=Math.round(m.filter(x=>x.attempts>0).length/m.length*100);
+  const score=Math.round(m.reduce((s,x)=>s+x.readiness,0)/m.length);
+  const debt=Math.round(m.reduce((s,x)=>s+(1-x.mastery)*Math.min(1,(x.daysSince===999?30:x.daysSince)/30),0)/m.length*100)/100;
+  const days=['dsssb','bpsc'].filter(k=>U.targets[k]).map(k=>Math.max(.25,(new Date(U.targets[k])-Date.now())/86400000));
+  const remaining=rows.reduce((s,x)=>s+(x.expected||1)*(1-statusWeight(st(x.id))),0);
+  const need=days.length?Math.ceil(remaining/Math.min.apply(null,days)):null;
+  return {score,accuracy,coverage,need,debt};
+}
 function countdown(t) {
   const ms0 = new Date(t) - Date.now();
   if (ms0 <= 0) return '<b>Target reached</b>';
@@ -340,53 +366,42 @@ function home() {
 }
 
 function analytics() {
-  const o = overall(), r = readiness();
-  const high = rowsFor().filter(x => priWeight(x.priority) >= 3 && st(x.id) !== STATUS[4])
-    .sort((a,b) => priWeight(b.priority)-priWeight(a.priority)).slice(0,20);
-  let list = high.map(x =>
-    '<div class="statrow"><span><b>' + esc(x.topic) + '</b><br><span class="small">' +
-    esc(x.exam) + ' • ' + esc(x.section) + ' • ' + esc(x.priority) +
-    '</span></span><span>' + st(x.id) + '</span></div>').join('');
-  if (!list) list = '<div class="alert success">No unmastered A+/A topics.</div>';
-  const patterns = {};
-  (U.pyq || []).forEach(x => {
-    const p = x.p || 'Unclassified';
-    patterns[p] = (patterns[p] || 0) + 1;
-  });
-  const pat = Object.keys(patterns).sort((a,b) => patterns[b]-patterns[a]).map(k =>
-    '<div class="statrow"><span>' + esc(k) + '</span><b>' + patterns[k] + '</b></div>').join('') ||
-    '<span class="mut">Add actual PYQs to build evidence-based pattern analytics.</span>';
-  return '<div class="grid"><div class="card"><span class="small">Readiness</span><div class="kpi">' + r.score +
-    '/100</div></div><div class="card"><span class="small">Accuracy</span><div class="kpi">' + r.accuracy +
-    '%</div></div><div class="card"><span class="small">PYQ coverage</span><div class="kpi">' + r.coverage +
-    '%</div></div><div class="card"><span class="small">Focused time</span><div class="kpi">' + fmtMin(U.total) +
-    '</div></div></div><div class="two"><div class="card"><h2>High-impact unfinished</h2>' + list +
-    '</div><div class="card"><h2>Observed PYQ patterns</h2>' + pat +
-    '</div></div><div class="card"><h2>Analytics methodology</h2><ul>' +
-    '<li>A+ topics have the highest weight.</li><li>Status progression contributes to readiness.</li>' +
-    '<li>PYQ accuracy = correct ÷ attempts.</li><li>PYQ coverage = unique PYQ topics ÷ coded syllabus micro-topics.</li>' +
-    '</ul></div>';
+  const r=readiness();
+  const all=rowsFor().map(x=>({x,m:topicMetrics(x)}));
+  const weak=all.filter(z=>z.m.status!==STATUS[4]).sort((a,b)=>b.m.nextScore-a.m.nextScore).slice(0,15);
+  const stale=all.filter(z=>z.m.status!==STATUS[0]).sort((a,b)=>b.m.daysSince-a.m.daysSince).slice(0,10);
+  const weakHtml=weak.map(z=>'<div class="statrow"><span><b>'+esc(z.x.topic)+'</b><br><span class="small">'+esc(z.x.exam)+' • '+esc(z.x.priority)+' • '+z.m.status+'</span></span><b>'+Math.round(z.m.nextScore)+'</b></div>').join('');
+  const staleHtml=stale.map(z=>'<div class="statrow"><span>'+esc(z.x.topic)+'</span><span>'+(z.m.daysSince===999?'never':Math.round(z.m.daysSince)+'d')+'</span></div>').join('');
+  return '<div class="grid"><div class="card"><span class="small">Adaptive readiness</span><div class="kpi">'+r.score+'/100</div></div>'+
+    '<div class="card"><span class="small">PYQ accuracy</span><div class="kpi">'+r.accuracy+'%</div></div>'+
+    '<div class="card"><span class="small">PYQ coverage</span><div class="kpi">'+r.coverage+'%</div></div>'+
+    '<div class="card"><span class="small">Revision debt</span><div class="kpi">'+r.debt+'</div></div></div>'+
+    '<div class="two"><div class="card"><h2>Highest-value unfinished topics</h2>'+(weakHtml||'<span class="mut">No unfinished topics.</span>')+'</div>'+
+    '<div class="card"><h2>Revision debt queue</h2>'+(staleHtml||'<span class="mut">No revision history yet.</span>')+'</div></div>'+
+    '<div class="card"><h2>Algorithm weights</h2><ul>'+
+    '<li>Topic readiness: 42% mastery + 18% PYQ accuracy + 12% PYQ evidence + 18% retention + 10% historical frequency.</li>'+
+    '<li>Next-topic score: 30% priority + 18% frequency + 20% weakness + 14% confidence gap + 10% staleness + 8% exam urgency.</li>'+
+    '<li>Unknown PYQ accuracy is neutral until attempts exist.</li>'+
+    '<li>Revision decay is a planning heuristic, not a scientific memory model.</li></ul></div>';
 }
-
 function planner() {
-  const freq = {};
-  (U.pyq || []).forEach(q => { freq[q.t] = (freq[q.t] || 0) + 1; });
-  const a = rowsFor().map(x => ({
-    x,
-    rank:priWeight(x.priority) * (1-statusWeight(st(x.id))) + Math.min(1,(freq[x.topic] || 0)/5) * .35
-  })).filter(z => st(z.x.id) !== STATUS[4])
-    .sort((a,b) => b.rank-a.rank).slice(0,25);
-  let rows = a.map(z => {
-    const x=z.x;
-    return '<tr><td><b>' + esc(x.topic) + '</b><br><span class="small">' + esc(x.section) +
-      '</span></td><td>' + esc(x.exam) + '</td><td>' + x.priority + '</td><td>' + st(x.id) +
-      '</td><td>' + (freq[x.topic] || 0) + '</td></tr>';
-  }).join('');
-  return '<div class="alert"><b>Smart queue:</b> priority × unfinished status × observed PYQ evidence.</div>' +
-    '<div class="card"><h2>Next best topics</h2><table><tr><th>Topic</th><th>Exam</th><th>Priority</th><th>Status</th><th>PYQ evidence</th></tr>' +
-    rows + '</table></div>';
+  const rows=rowsFor().map(x=>({x,m:topicMetrics(x)})).filter(z=>z.m.status!==STATUS[4]).sort((a,b)=>b.m.nextScore-a.m.nextScore);
+  const daily=Math.max(30,Number(U.daily)||120);
+  let budget=daily, plan=[];
+  for(const z of rows){
+    if(budget<=0)break;
+    const mins=z.m.mastery<.25?35:z.m.mastery<.55?30:z.m.mastery<.78?25:20;
+    const alloc=Math.min(mins,budget);
+    plan.push({...z,mins:alloc});
+    budget-=alloc;
+  }
+  const html=plan.map(z=>'<tr><td><b>'+esc(z.x.topic)+'</b><br><span class="small">'+esc(z.x.section)+'</span></td><td>'+esc(z.x.exam)+'</td><td>'+esc(z.x.priority)+'</td><td>'+z.m.status+'</td><td>'+Math.round(z.m.nextScore)+'</td><td>'+(z.m.accuracy===null?'—':Math.round(z.m.accuracy*100)+'%')+'</td><td>'+z.mins+' min</td></tr>').join('');
+  return '<div class="alert"><b>Adaptive queue:</b> priority + frequency + mastery + PYQ accuracy + revision decay + exam urgency.</div>'+
+    '<div class="grid"><div class="card"><span class="small">Daily budget</span><div class="kpi">'+daily+'m</div></div>'+
+    '<div class="card"><span class="small">Revision debt</span><div class="kpi">'+readiness().debt+'</div></div>'+
+    '<div class="card"><span class="small">Queue size</span><div class="kpi">'+rows.length+'</div></div></div>'+
+    '<div class="card"><h2>Today\'s study queue</h2><table><tr><th>Topic</th><th>Exam</th><th>Priority</th><th>Status</th><th>Score</th><th>PYQ Acc.</th><th>Time</th></tr>'+html+'</table></div>';
 }
-
 function syllabus(key, exam) {
   const data = DATA_READY[key] || [];
   let html = '<div class="card"><div class="toolbar"><input id="search" placeholder="Search topic or subtopic">' +
