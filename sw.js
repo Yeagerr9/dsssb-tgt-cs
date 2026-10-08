@@ -1,5 +1,5 @@
-const CACHE='cstm-shell-v2';
-const CORE=['./portal.html','./core/theme.css','./core/main.js','./core/firebase.js','./core/auth.js','./core/store.js','./core/router.js','./core/registry.js','./core/theme.css','./data/catalog.js','./modules/utils.js'];
+const CACHE='cstm-shell-v3';
+const CORE=['./portal.html','./core/theme.css','./core/main.js','./core/firebase.js','./core/auth.js','./core/store.js','./core/router.js','./core/registry.js','./data/catalog.js','./data/questions.json','./modules/utils.js','./modules/dashboard.js','./modules/syllabus.js','./modules/practice.js','./modules/planner.js','./modules/mocks.js','./modules/paper1.js','./modules/analytics.js','./modules/notes.js','./modules/time.js','./modules/settings.js','./engine/mastery.js','./engine/spaced.js','./engine/selector.js','./engine/readiness.js','./engine/predictor.js','./engine/planner.js','./engine/analytics.js','./engine/streak.js','./engine/tests.js'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;e.respondWith(caches.match(e.request).then(c=>c||fetch(e.request).then(r=>{if(r.ok&&new URL(e.request.url).origin===location.origin){const cp=r.clone();caches.open(CACHE).then(x=>x.put(e.request,cp))}return r}).catch(()=>c)))})
