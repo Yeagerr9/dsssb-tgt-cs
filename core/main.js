@@ -70,6 +70,7 @@ async function enter(u){
  $('authGate').classList.add('hidden');$('app').classList.remove('hidden');
  renderAll();
 }
+startRouter(r=>{route=r.route; if(!$('app').classList.contains('hidden'))renderPage()});
 observeAuth(async u=>{if(u){try{await enter(u)}catch(e){setStatus(e.message,'error')}}else{$('authGate').classList.remove('hidden');$('app').classList.add('hidden')}});
 setInterval(()=>{if(!$('app').classList.contains('hidden')){renderBanner();$('clock').textContent=new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}},1000);
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
