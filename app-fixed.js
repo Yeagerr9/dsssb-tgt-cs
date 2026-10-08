@@ -418,7 +418,9 @@ function remainingFor(exam){
   const rows=rowsFor().filter(x=>x.exam===exam);
   const remaining=rows.filter(x=>st(x.id)!==STATUS[4]).length;
   const completed=rows.length-remaining;
-  return {total:rows.length,remaining,completed};
+  const sections=[...new Set(rows.map(x=>x.section))];
+  const remainingSections=sections.filter(section=>rows.some(x=>x.section===section && st(x.id)!==STATUS[4])).length;
+  return {total:rows.length,remaining,completed,sections:sections.length,remainingSections};
 }
 function bannerCountdown(t){
   if(!t) return 'Set an exam date in Settings';
@@ -437,8 +439,8 @@ function updateExamBanner(){
   const ds=remainingFor('DSSSB CS'), bs=remainingFor('BPSC CS');
   const d=U.targets.dsssb, b=U.targets.bpsc;
   const items=[];
-  if(d) items.push('<div><b>🎯 DSSSB TGT CS</b><br><span class="bannerClock">'+bannerCountdown(d)+'</span><br><span class="small">'+ds.remaining+' subjects remaining • '+ds.completed+'/'+ds.total+' completed</span></div>');
-  if(b) items.push('<div><b>🎯 BPSC TRE 4.0 CS</b><br><span class="bannerClock">'+bannerCountdown(b)+'</span><br><span class="small">'+bs.remaining+' subjects remaining • '+bs.completed+'/'+bs.total+' completed</span></div>');
+  if(d) items.push('<div><b>🎯 DSSSB TGT CS</b><br><span class="bannerClock">'+bannerCountdown(d)+'</span><br><span class="small">'+ds.remainingSections+' subject areas remaining • '+ds.remaining+' topics remaining • '+ds.completed+'/'+ds.total+' topics completed</span></div>');
+  if(b) items.push('<div><b>🎯 BPSC TRE 4.0 CS</b><br><span class="bannerClock">'+bannerCountdown(b)+'</span><br><span class="small">'+bs.remainingSections+' subject areas remaining • '+bs.remaining+' topics remaining • '+bs.completed+'/'+bs.total+' topics completed</span></div>');
   el.innerHTML=items.length?items.join('<div class="bannerDivider"></div>'):'<div><b>📅 Exam countdown</b><br><span class="small">Set DSSSB/BPSC exam dates in Settings to activate the live countdown and remaining-subject banner.</span></div>';
   el.classList.remove('hide');
 }
