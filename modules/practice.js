@@ -21,7 +21,7 @@ function answer(el,ctx,q,qs,opt){
  const seconds=Number(prompt('Seconds spent on this question','30')||30),expected=Number(q.expectedSeconds||45);
  const u=updateMastery(t.mastery,correct,Number(q.difficulty||3),seconds,expected,t.attempts||0);
  ctx.state.topicState[q.topicId]={...t,...u,lastSeen:Date.now(),...scheduleTopic(t,correct,seconds<=expected,daysTo(ctx.state.settings?.targets?.[ctx.exam]))};
- ctx.state.attempts.push({id:crypto.randomUUID(),questionId:q.id,topicId:q.topicId,exam:ctx.exam,correct,seconds,timestamp:Date.now(),mode:'practice',difficulty:q.difficulty||3});
+ ctx.state.attempts.push({id:crypto.randomUUID(),questionId:q.id,topicId:q.topicId,exam:ctx.exam,correct,seconds,timestamp:Date.now(),mode:'practice',difficulty:q.difficulty||3});ctx.save();
  ctx.toast(correct?'Correct ✓':'Incorrect — review the explanation');ctx.render();
 }
 function daysTo(d){return d?Math.max(1,(new Date(d)-Date.now())/86400000):999}
