@@ -2,7 +2,7 @@ import {db} from './firebase.js';
 import {doc,getDoc,setDoc,collection,addDoc,getDocs,deleteDoc,query,orderBy,limit,serverTimestamp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
 const CACHE='cstm-cache-v1';
 let uid=null;
-let state={profile:{},topicState:{},attempts:[],mocks:[],notes:[],sessions:[],settings:{}};
+let state={profile:{},topicState:{},attempts:[],mocks:[],notes:[],sessions:[],questions:[],settings:{},_version:2};
 export function setUser(id){uid=id}
 export function getState(){return state}
 export async function load(){
@@ -10,7 +10,8 @@ export async function load(){
  const ref=doc(db,'users',uid); const snap=await getDoc(ref);
  if(snap.exists()){
    const x=snap.data();
-   state={profile:x.profile||{},topicState:x.topicState||{},attempts:x.attempts||[],mocks:x.mocks||[],notes:x.notes||[],sessions:x.sessions||[],settings:x.settings||{},...x};
+   state={profile:x.profile||{},topicState:x.topicState||{},attempts:x.attempts||[],mocks:x.mocks||[],notes:x.notes||[],sessions:x.sessions||[],questions:x.questions||[],settings:x.settings||{},...x};
+ if(!x._version&&(x.status||x.pyq)){state.legacy={displayName:x.displayName,targets:x.targets,activeExam:x.activeExam,daily:x.daily,status:x.status,pyq:x.pyq};}
  }else await save();
  try{localStorage.setItem(CACHE,JSON.stringify(state))}catch(_){}
  return state;
@@ -39,7 +40,8 @@ export function legacyMigrate(legacy){
  if(!legacy||state._migratedLegacy)return;
  state.profile={...state.profile,displayName:legacy.displayName||''};
  state.settings={...state.settings,targets:legacy.targets||{},daily:legacy.daily||120,activeExam:legacy.activeExam||'dsssb'};
+ state._version=2;
  Object.entries(legacy.status||{}).forEach(([id,status])=>{state.topicState[id]={...(state.topicState[id]||{}),status,mastery:status.includes('Mastered')?1:status.includes('PYQ Done')?.78:status.includes('Notes Done')?.55:status.includes('Studying')?.25:.3}});
  (legacy.pyq||[]).forEach(q=>state.attempts.push({id:'legacy-'+(q.at||Date.now())+'-'+Math.random(),questionId:q.id||'',topicId:q.t||'',correct:Number(q.correct||0),attempts:Number(q.attempts||0),timestamp:q.at||Date.now(),mode:'legacy'}));
- state._migratedLegacy=true;queueSave();
+ state._migratedLegacy=true;delete state.legacy;queueSave();
 }
