@@ -417,7 +417,7 @@ function projection(exam) {
   return {mean,low:Math.max(0,mean-spread),high:Math.min(max,mean+spread),max};
 }
 function quizPage() {
-  const due=dueQuestions(), qs=(U.pyq||[]).filter(q=>q.q);
+  const due=dueQuestions(), qs=(U.pyq||[]).filter(q=>examPYQ(q) && q.q);
   const q=due[0], idx=q?U.pyq.indexOf(q):-1;
   const s=q?srState(q):null;
   if(!qs.length) return '<div class="alert warning"><b>No question-ready PYQs yet.</b> Add PYQs with question text, four options and the correct option in the PYQ Bank.</div>';
@@ -431,7 +431,7 @@ function quizPage() {
     '<p class="small">Repetitions: '+s.reps+' • Current interval: '+s.interval+' day(s) • Attempts: '+(+q.attempts||0)+'</p></div>';
 }
 function mockPage() {
-  const qs=(U.pyq||[]).filter(q=>q.q && q.options && q.answer!==undefined);
+  const qs=(U.pyq||[]).filter(q=>examPYQ(q) && q.q && q.options && q.answer!==undefined);
   if(!qs.length) return '<div class="alert warning"><b>Mock simulator needs question-ready PYQs.</b> Add questions with options and correct answers in the PYQ Bank.</div>';
   if(U.mock && U.mock.active){
     const ids=U.mock.indices||[], answered=U.mock.answers||{};
