@@ -2,6 +2,9 @@ import './theme.css';
 import {observeAuth,signInOrCreate,resetPassword,verifyEmail,logout} from './auth.js';
 import {setUser,load,loadLocal,getState,legacyMigrate} from './store.js';
 import {registry,byId} from './registry.js';
+import '../data/catalog.js';
+import {topicRows} from '../modules/utils.js';
+import {queueSave} from './store.js';
 import {startRouter,navigate} from './router.js';
 const $=id=>document.getElementById(id);
 const exams={
@@ -22,7 +25,7 @@ function renderNav(){
  const ds=navGroups.map(([g,ids])=>'<div class="nav-group">'+g+'</div>'+ids.map(id=>{const m=byId[id];if(!m||!examScope(m))return '';return '<button class="nav-item '+(route===id?'active':'')+'" data-route="'+id+'">'+m.icon+' '+m.title+'</button>'}).join('')).join('');
  $('desktopNav').innerHTML=ds;$('mobileNav').innerHTML=visibleModules().slice(0,4).map(m=>'<button class="'+(route===m.id?'active':'')+'" data-route="'+m.id+'">'+m.icon+'<br>'+m.title.split(' ')[0]+'</button>').join('');
  document.querySelectorAll('[data-route]').forEach(b=>b.onclick=()=>navigate(b.dataset.route));
- document.querySelectorAll('[data-exam]').forEach(b=>b.onclick=()=>{activeExam=b.dataset.exam;state().settings.activeExam=activeExam;localStorage.setItem('cstm-active-exam',activeExam);renderAll()});
+ document.querySelectorAll('[data-exam]').forEach(b=>b.onclick=()=>{activeExam=b.dataset.exam;state().settings.activeExam=activeExam;queueSave();localStorage.setItem('cstm-active-exam',activeExam);renderAll()});
  document.querySelectorAll('.exam-switch').forEach(b=>b.classList.toggle('active',b.dataset.exam===activeExam));
 }
 function examRows(){
@@ -31,7 +34,7 @@ function examRows(){
  return sets.flatMap(x=>x||[]);
 }
 function examStats(){
- const rows=examRows(), ts=state().topicState||{};
+ const rows=topicRows(window.CS_CATALOG,activeExam), ts=state().topicState||{};
  const w=x=>x[2]==='A+'?4:x[2]==='A'?3:x[2]==='B'?2:1;
  const mastery=(x[3]||[]).map(t=>ts[t]?.mastery??.3);
  const total=rows.reduce((s,x)=>s+(x[3]||[]).length,0);
@@ -48,7 +51,7 @@ async function renderPage(){
  const m=byId[route]||byId.dashboard;
  if(!examScope(m)){navigate('dashboard');return}
  $('pageTitle').textContent=m.title;$('workspaceEyebrow').textContent=exams[activeExam].label;
- $('content').innerHTML=await m.render($('content'),{exam:activeExam,state:state(),catalog:window.CS_CATALOG,navigate,toast});
+ $('content').innerHTML=await m.render($('content'),{exam:activeExam,state:state(),catalog:window.CS_CATALOG,navigate,toast,render:renderPage,save:queueSave});
  renderNav();renderBanner();
 }
 function renderAll(){renderNav();renderBanner();renderPage()}
