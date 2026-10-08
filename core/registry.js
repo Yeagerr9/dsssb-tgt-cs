@@ -3,6 +3,7 @@ const defs=[
 {id:'syllabus',title:'Syllabus Tracker',icon:'▦',exams:['dsssb','bpsc'],loader:()=>import('../modules/syllabus.js')},
 {id:'practice',title:'Practice Bank',icon:'✓',exams:['dsssb','bpsc'],loader:()=>import('../modules/practice.js')},
 {id:'mocks',title:'Mock Tests',icon:'◈',exams:['dsssb','bpsc'],loader:()=>import('../modules/mocks.js')},
+{id:'planner',title:'Smart Planner',icon:'◆',exams:['dsssb','bpsc'],loader:()=>import('../modules/planner.js')},
 {id:'paper1',title:'Paper 1 / GS',icon:'▤',exams:['dsssb','bpsc'],loader:()=>import('../modules/paper1.js')},
 {id:'analytics',title:'Analytics',icon:'◉',exams:['dsssb','bpsc'],loader:()=>import('../modules/analytics.js')},
 {id:'notes',title:'Notes & Revision',icon:'✎',exams:['dsssb','bpsc'],loader:()=>import('../modules/notes.js')},
