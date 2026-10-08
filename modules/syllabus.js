@@ -1,0 +1,10 @@
+import {topicRows,status,esc} from './utils.js';
+import {updateMastery} from '../engine/mastery.js';
+export default {id:'syllabus',title:'Syllabus Tracker',icon:'▦',exams:['dsssb','bpsc'],route:'#/syllabus',
+render(el,ctx){
+ const rows=topicRows(ctx.catalog,ctx.exam),ts=ctx.state.topicState||{};
+ el.innerHTML='<div class="card"><div class="section-head"><div><h3>Complete syllabus tracker</h3><span class="muted">Status is derived from mastery, attempts and your manual study state.</span></div><div class="toolbar"><input id="sySearch" placeholder="Search topics…"><select id="syPriority"><option value="">All priorities</option><option>A+</option><option>A</option><option>B</option><option>C</option></select></div></div><div class="table-wrap"><table><thead><tr><th>Section</th><th>Topic</th><th>Priority</th><th>Mastery</th><th>Attempts</th><th>Status</th><th>Action</th></tr></thead><tbody id="syBody">'+rows.map(x=>{const t=ts[x.id]||{mastery:.3,attempts:0};return '<tr class="sy-row" data-search="'+esc((x.section+' '+x.topic).toLowerCase())+'" data-p="'+x.priority+'"><td>'+esc(x.section)+'</td><td><b>'+esc(x.topic)+'</b></td><td><span class="badge priority-'+x.priority.replace('+','plus')+'">'+x.priority+'</span></td><td>'+Math.round((t.mastery??.3)*100)+'%</td><td>'+Number(t.attempts||0)+'</td><td>'+status(t.mastery??.3)+'</td><td><button class="btn" data-study="'+esc(x.id)+'">Study</button></td></tr>'}).join('')+'</tbody></table></div></div>';
+ const filter=()=>{const q=el.querySelector('#sySearch').value.toLowerCase(),p=el.querySelector('#syPriority').value;el.querySelectorAll('.sy-row').forEach(r=>r.style.display=(!q||r.dataset.search.includes(q))&&(!p||r.dataset.p===p)?'':'none')};el.querySelector('#sySearch').oninput=filter;el.querySelector('#syPriority').onchange=filter;
+ el.querySelectorAll('[data-study]').forEach(b=>b.onclick=()=>{const id=b.dataset.study;const t=ts[id]||{};ctx.state.topicState[id]={...t,manualStatus:'learning',lastSeen:Date.now()};ctx.toast('Topic marked for study');ctx.render()});
+ return el.innerHTML;
+}};
