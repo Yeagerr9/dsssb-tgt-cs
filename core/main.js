@@ -36,10 +36,9 @@ function examRows(){
 }
 function examStats(){
  const rows=topicRows(window.CS_CATALOG,activeExam), ts=state().topicState||{};
- const w=x=>x[2]==='A+'?4:x[2]==='A'?3:x[2]==='B'?2:1;
- const mastery=(x[3]||[]).map(t=>ts[t]?.mastery??.3);
- const total=rows.reduce((s,x)=>s+(x[3]||[]).length,0);
- const done=mastery.filter(x=>x>=.78).length;
+ const mastery=rows.map(x=>ts[x.id]?.mastery??.3);
+ const total=rows.length;
+ const done=mastery.filter(x=>x>=.85).length;
  const score=total?Math.round(mastery.reduce((s,x)=>s+x,0)/total*100):0;
  return {rows,total,done,score};
 }
