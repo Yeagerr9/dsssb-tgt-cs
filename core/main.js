@@ -1,7 +1,7 @@
 import './theme.css';
 import {observeAuth,signInOrCreate,resetPassword,verifyEmail,logout} from './auth.js';
 import {setUser,load,loadLocal,getState,legacyMigrate} from './store.js';
-import {registry,byId} from './registry.js';
+import {registry,byId,loadModule} from './registry.js';
 import '../data/catalog.js';
 import {topicRows} from '../modules/utils.js';
 import {queueSave} from './store.js';
@@ -49,9 +49,10 @@ function renderBanner(){
  $('examBanner').innerHTML='<div class="banner-cell"><span class="eyebrow">'+e.label+'</span><div class="banner-value">'+e.full+'</div></div><div class="banner-cell"><span class="small">COUNTDOWN</span><div class="banner-value">'+countdown+'</div></div><div class="banner-cell"><span class="small">TOPICS</span><div class="banner-value">'+(st.total-st.done)+' / '+st.total+'</div></div><div class="banner-cell"><span class="small">MASTERED</span><div class="banner-value">'+st.done+' / '+st.total+'</div></div><div class="banner-cell"><span class="small">READINESS</span><div class="banner-value">'+st.score+'%</div></div>';
 }
 async function renderPage(){
- const m=byId[route]||byId.dashboard;
- if(!examScope(m)){navigate('dashboard');return}
- $('pageTitle').textContent=m.title;$('workspaceEyebrow').textContent=exams[activeExam].label;
+ const def=byId[route]||byId.dashboard;
+ if(!examScope(def)){navigate('dashboard');return}
+ const m=await loadModule(def.id);
+ $('pageTitle').textContent=def.title;$('workspaceEyebrow').textContent=exams[activeExam].label;
  const html=await m.render($('content'),{exam:activeExam,state:state(),catalog:window.CS_CATALOG,navigate,toast,render:renderPage,save:queueSave});if(typeof html==='string'&&$('content').innerHTML!==html)$('content').innerHTML=html;
  renderNav();renderBanner();
 }
