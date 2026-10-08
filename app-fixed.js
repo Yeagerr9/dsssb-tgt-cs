@@ -414,6 +414,34 @@ function readiness() {
   const need=days.length?Math.ceil(remaining/Math.min.apply(null,days)):null;
   return {score,accuracy,coverage,need,debt};
 }
+function remainingFor(exam){
+  const rows=rowsFor().filter(x=>x.exam===exam);
+  const remaining=rows.filter(x=>st(x.id)!==STATUS[4]).length;
+  const completed=rows.length-remaining;
+  return {total:rows.length,remaining,completed};
+}
+function bannerCountdown(t){
+  if(!t) return 'Set an exam date in Settings';
+  const ms=new Date(t)-Date.now();
+  if(!Number.isFinite(ms)) return 'Invalid exam date';
+  if(ms<=0) return '<b>Exam date reached</b>';
+  const d=Math.floor(ms/86400000);
+  const h=Math.floor((ms%86400000)/3600000);
+  const m=Math.floor((ms%3600000)/60000);
+  const s=Math.floor((ms%60000)/1000);
+  return '<b>'+d+'d '+String(h).padStart(2,'0')+'h '+String(m).padStart(2,'0')+'m '+String(s).padStart(2,'0')+'s</b>';
+}
+function updateExamBanner(){
+  const el=$('examBanner');
+  if(!el) return;
+  const ds=remainingFor('DSSSB CS'), bs=remainingFor('BPSC CS');
+  const d=U.targets.dsssb, b=U.targets.bpsc;
+  const items=[];
+  if(d) items.push('<div><b>🎯 DSSSB TGT CS</b><br><span class="bannerClock">'+bannerCountdown(d)+'</span><br><span class="small">'+ds.remaining+' subjects remaining • '+ds.completed+'/'+ds.total+' completed</span></div>');
+  if(b) items.push('<div><b>🎯 BPSC TRE 4.0 CS</b><br><span class="bannerClock">'+bannerCountdown(b)+'</span><br><span class="small">'+bs.remaining+' subjects remaining • '+bs.completed+'/'+bs.total+' completed</span></div>');
+  el.innerHTML=items.length?items.join('<div class="bannerDivider"></div>'):'<div><b>📅 Exam countdown</b><br><span class="small">Set DSSSB/BPSC exam dates in Settings to activate the live countdown and remaining-subject banner.</span></div>';
+  el.classList.remove('hide');
+}
 function countdown(t) {
   const ms0 = new Date(t) - Date.now();
   if (ms0 <= 0) return '<b>Target reached</b>';
@@ -575,6 +603,7 @@ function render() {
     time:'Time & Sessions', quiz:'Spaced-Repetition Practice', mock:'Exam Simulator', settings:'Settings'
   };
   $('title').textContent = titles[PAGE] || 'Dashboard';
+  updateExamBanner();
   let v;
   if (PAGE === 'home') v=home();
   else if (PAGE === 'analytics') v=analytics();
@@ -592,6 +621,7 @@ function render() {
   else v=settings();
   $('content').innerHTML = v;
   bind();
+  updateExamBanner();
 }
 
 function bind() {
@@ -699,6 +729,7 @@ $('resetPassword').onclick=resetPassword;
 $('verify').onclick=verifyEmail;
 $('lock').onclick=signOut;
 $('password').onkeydown=e=>{if(e.key==='Enter')authAction();};
+setInterval(updateExamBanner,1000);
 
 if (window.CS_FIREBASE_READY && window.CS_AUTH) {
   setAuthState('Firebase connected ✓ — sign in or create an account','ok');
